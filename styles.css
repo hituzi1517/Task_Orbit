@@ -70,3 +70,4 @@ body {padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-ins
 @media (min-width:831px) {
   body {padding-top:env(safe-area-inset-top,0px)}
 }
+.widget-copy-fallback {width:100%}

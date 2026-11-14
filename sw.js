@@ -1,8 +1,8 @@
 'use strict';
 
 const cachePrefix = 'task-orbit:' + new URL(self.registration.scope).pathname + ':';
-const cacheName = cachePrefix + 'v2';
-const files = ['./index.html','./app.js','./styles.css','./manifest.webmanifest','./icon.png','./icon-192.png','./icon-512.png'];
+const cacheName = cachePrefix + 'v3';
+const files = ['./index.html','./app.js','./styles.css','./manifest.webmanifest','./icon.png','./icon-192.png','./icon-512.png','./Task_Orbit_Widget.js'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(cacheName).then(cache => cache.addAll(files)).then(() => self.skipWaiting()));
@@ -14,7 +14,9 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (event.request.method !== 'GET' || !url.href.startsWith(self.registration.scope)) return;
-  const page = event.request.mode === 'navigate';
+  const page = event.request.mode === 'navigate' &&
+    (url.pathname === new URL(self.registration.scope).pathname ||
+     url.pathname === new URL('./index.html',self.registration.scope).pathname);
   const file = files.find(path => new URL(path,self.registration.scope).href === url.origin + url.pathname);
   if (!page && !file) return;
   event.respondWith((async () => {

@@ -589,7 +589,65 @@ function settings() {
     '<label class="daily-accent"><input type="checkbox" id="daily-accent"' + (data.dailyAccent ? ' checked' : '') + '>日替わりで色を変える</label></section>' +
     '<section class="settings-group"><h3>データ</h3><p class="muted">タスクはこのブラウザに自動保存されます。別の端末へ移すときはJSONを書き出して読み込んでください。</p>' +
     actionButton('JSONを書き出す','export') + actionButton('JSONを読み込む','import') + '<input id="import-file" type="file" accept=".json,application/json" hidden></section>' +
+    '<section class="settings-group"><h3>Scriptableウィジェット</h3><p class="muted">iPhone・iPadのホーム画面に、今日のタスクや日替わりの1件を表示できます。</p>' +
+    actionButton('ウィジェットを設定・更新','widget-settings') + '</section>' +
     (data.tasks.some(task => task.sample) ? '<section class="settings-group"><h3>サンプル</h3>' + actionButton('サンプルを消す','remove-samples') + '</section>' : ''));
+}
+function widgetSnapshot() {
+  const today = dateKey();
+  const site = new URL('./', location.href);
+  site.hash = 'today';
+  const tasks = active().sort((a,b) => Number(b.pinned) - Number(a.pinned) || compareDue(a,b));
+  return JSON.stringify({
+    type:'task-orbit-widget',
+    version:1,
+    site:site.href,
+    updated:Date.now(),
+    day:today,
+    done:todayTasks().filter(task => task.doneAt).length,
+    accent:currentAccent(),
+    tasks:tasks.map(task => [task.title, task.due, task.minutes]),
+  });
+}
+function widgetSettings() {
+  openModal('Scriptableウィジェット',
+    '<section class="settings-group"><h3>最初の設定</h3><p>スクリプトをコピーし、Scriptableで新規スクリプトを作って貼り付け、名前を <strong>Task Orbit</strong> にします。</p>' +
+    actionButton('スクリプトをコピー','widget-code') + '<a class="button secondary" href="./Task_Orbit_Widget.js" download>スクリプトを保存</a></section>' +
+    '<section class="settings-group"><h3>タスクを更新</h3><p>下のボタンでタスクをコピーしてから、「Scriptableに取り込む」を押してください。サイトでタスクを変えたときも同じ手順で更新できます。</p>' +
+    actionButton('タスクをコピー','widget-data','', 'primary') +
+    '<a class="button secondary" href="scriptable:///run/Task%20Orbit?orbit=import">Scriptableに取り込む</a>' +
+    '<div id="widget-copy-fallback" class="widget-copy-fallback" hidden></div><p id="widget-status" class="muted" role="status"></p></section>' +
+    '<section class="settings-group"><h3>ホーム画面に追加</h3><p>Scriptableのウィジェットを追加し、長押しして「ウィジェットを編集」を開きます。Scriptに <strong>Task Orbit</strong>、When Interactingに <strong>Open App</strong> を選びます。</p>' +
+    '<p>Parameterは空欄で今日の一覧、<code>random</code> で日替わりの1件を表示します。</p></section>' +
+    '<div class="form-actions">' + actionButton('設定に戻る','settings') + '</div>');
+}
+async function copyForWidget(value, label) {
+  const status = $('#widget-status');
+  const manual = $('#widget-copy-fallback');
+  if (!status || !manual) return;
+  manual.hidden = true;
+  try {
+    await navigator.clipboard.writeText(value);
+    status.textContent = label + 'をコピーしました。';
+  } catch {
+    manual.innerHTML = field(label, '<textarea rows="4" readonly></textarea>');
+    manual.hidden = false;
+    const textarea = $('textarea',manual);
+    textarea.value = value;
+    textarea.focus();
+    textarea.select();
+    status.textContent = '表示されたテキストを長押ししてコピーしてください。';
+  }
+}
+let widgetCode;
+function loadWidgetCode() {
+  if (!widgetCode) {
+    widgetCode = fetch('./Task_Orbit_Widget.js').then(response => {
+      if (!response.ok) throw new Error('Scriptable widget source unavailable');
+      return response.text();
+    }).catch(error => { widgetCode = undefined; throw error; });
+  }
+  return widgetCode;
 }
 function toggleTask(task) {
   if (modal.open) modal.close();
@@ -732,6 +790,30 @@ const actions = {
   },
   'reset-timer': () => { focus.end = 0; focus.remaining = focus.minutes*60000; renderTimer(); },
   settings,
+  'widget-settings': () => { widgetSettings(); loadWidgetCode().catch(() => {}); },
+  'widget-code': async () => {
+    try {
+      // Start the clipboard write inside the tap handler, including on Safari.
+      const source = loadWidgetCode();
+      if (navigator.clipboard?.write && typeof ClipboardItem === 'function') {
+        try {
+          const blob = source.then(code => new Blob([code], {type:'text/plain'}));
+          await navigator.clipboard.write([new ClipboardItem({'text/plain':blob})]);
+          const status = $('#widget-status');
+          if (status) {
+            $('#widget-copy-fallback').hidden = true;
+            status.textContent = 'スクリプトをコピーしました。';
+          }
+          return;
+        } catch { /* Try text copy or show a selectable copy. */ }
+      }
+      await copyForWidget(await source,'スクリプト');
+    } catch {
+      const status = $('#widget-status');
+      if (status) status.textContent = '読み込めませんでした。「スクリプトを保存」をお試しください。';
+    }
+  },
+  'widget-data': () => copyForWidget(widgetSnapshot(),'タスク'),
   theme: id => { data.theme = id; persist(); render(); settings(); },
   'roll-color': () => {
     data.accent = shuffle(Object.keys(accents).filter(key => key !== currentAccent()))[0];
