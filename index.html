@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f7fb">
+  <meta name="description" content="今日のタスクを整理して、次にやることをくじで選べるタスク管理アプリ。">
+  <title>Task Orbit — タスク管理</title>
+  <link rel="icon" href="./icon.png">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" aria-label="メインメニュー">
+      <a class="brand" href="#today"><span class="brand-mark" data-icon="orbit"></span>Task Orbit</a>
+      <nav id="navigation"></nav>
+      <div class="sidebar-footer">
+        <button class="nav-button" data-action="settings"><span data-icon="settings"></span>設定・バックアップ</button>
+        <span class="storage-label"><i></i> <span id="storage-status">自動保存オン</span></span>
+      </div>
+    </aside>
+    <main>
+      <header class="topbar">
+        <a class="brand mobile-brand" href="#today"><span class="brand-mark" data-icon="orbit"></span>Task Orbit</a>
+        <div class="top-context"><span data-icon="layout"></span> マイワークスペース <span class="breadcrumb">/</span> <strong id="path">今日</strong></div>
+        <div class="header-actions">
+          <button class="button search-button" data-action="search" aria-label="タスクを検索"><span data-icon="search"></span><span class="search-label">検索</span><kbd>/</kbd></button>
+          <button class="button primary" data-action="new"><span data-icon="plus"></span>タスク追加</button>
+        </div>
+      </header>
+      <div class="workspace">
+        <section class="intro">
+          <p class="date-label"><span data-icon="calendar"></span><span id="today-date"></span></p>
+          <h1 id="page-title">今日のタスク</h1>
+          <p id="page-description"></p>
+        </section>
+        <section class="stats" id="stats" aria-label="タスクの概要"></section>
+        <div class="dashboard">
+          <section class="task-panel" aria-labelledby="list-title">
+            <div class="panel-header">
+              <div><h2 id="list-title">タスクリスト</h2><p id="list-summary"></p></div>
+              <button class="icon-button outline" id="sort-button" data-action="filters" title="絞り込み・並び替え" aria-label="絞り込み・並び替え" aria-expanded="false"><span data-icon="sliders"></span></button>
+            </div>
+            <div class="quick-row" id="quick-row">
+              <form id="quick-form" class="quick-form"><span data-icon="plus"></span><input name="title" aria-label="タスク名" placeholder="タスクをすばやく追加…" maxlength="180" required><button type="submit" title="タスクを追加" aria-label="タスクを追加">↵</button></form>
+              <button class="icon-button outline" data-action="batch" title="まとめて追加" aria-label="まとめて追加"><span data-icon="stack"></span></button>
+            </div>
+            <div id="filters" hidden></div>
+            <div id="task-list"></div>
+          </section>
+          <aside class="tools" aria-label="くじと集中タイマー">
+            <section class="random-card" id="random-card">
+              <div class="dice-art" aria-hidden="true"><i class="star one">✦</i><i class="star two">✧</i><i class="star three">✦</i><div class="die"><b></b><b></b><b></b><b></b><b></b></div></div>
+              <span class="random-icon" data-icon="shuffle"></span>
+              <h2>タスクくじ</h2>
+              <p>次にやることを、くじで決めよう。</p>
+              <div id="random-options" class="random-options"></div>
+              <div id="random-result" class="random-result" aria-live="polite"></div>
+              <button class="button draw-button" data-action="draw"><span data-icon="shuffle"></span><span id="draw-label">くじを引く</span><span class="draw-arrow">→</span></button>
+            </section>
+            <section class="focus-card" id="focus-card">
+              <div class="focus-head"><div class="tile mint" data-icon="clock"></div><div><h2>集中タイマー</h2><p id="focus-task">作業時間を計る</p></div><button class="icon-button" data-action="reset-timer" title="タイマーをリセット" aria-label="タイマーをリセット"><span data-icon="reset"></span></button></div>
+              <div class="timer-face"><strong id="timer-display" aria-label="タイマー">25:00</strong><select id="timer-minutes" aria-label="タイマーの時間"><option value="5">5分</option><option value="15">15分</option><option value="25" selected>25分</option><option value="45">45分</option><option value="60">60分</option></select></div>
+              <button class="button timer-button" data-action="timer"><span data-icon="play"></span>開始</button>
+            </section>
+          </aside>
+        </div>
+      </div>
+    </main>
+  </div>
+  <dialog id="modal" aria-labelledby="modal-title"><div class="modal-header"><h2 id="modal-title"></h2><button class="icon-button" data-action="close" aria-label="閉じる"><span data-icon="x"></span></button></div><div id="modal-content"></div></dialog>
+  <div id="toast" role="status" hidden></div>
+</body>
+</html>
