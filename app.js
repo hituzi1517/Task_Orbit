@@ -42,10 +42,19 @@ const palette = {
   violet: ['#8058d4', '紫'], mint: ['#359b82', '緑'], gold: ['#bf8540', '橙'],
   blue: ['#477fc1', '青'], pink: ['#c35f88', '桃'], gray: ['#77758a', '灰'],
 };
-const accents = {violet:'すみれ', blue:'深い青', mint:'青緑', pink:'木いちご', gold:'琥珀', plum:'ぶどう'};
+const accents = {
+  violet:'すみれ', blue:'深い青', mint:'青緑', pink:'木いちご', gold:'琥珀', plum:'ぶどう',
+  'hue-0':'ざくろ', 'hue-12':'れんが', 'hue-24':'柿', 'hue-42':'はちみつ',
+  'hue-54':'レモン', 'hue-68':'若草', 'hue-83':'オリーブ', 'hue-106':'抹茶',
+  'hue-124':'森', 'hue-148':'翡翠', 'hue-181':'浅葱', 'hue-194':'水色',
+  'hue-206':'瑠璃', 'hue-230':'藍', 'hue-244':'菫青', 'hue-274':'藤',
+  'hue-307':'紅紫', 'hue-348':'椿',
+};
+const accentModes = {fixed:'固定', draw:'くじを引くたび', hourly:'1時間ごと', daily:'日替わり'};
 const views = {
   today: ['今日', '今日のタスク', '期限が今日までのタスクと、今日完了したタスク。', 'sun'],
   all: ['すべて', 'すべてのタスク', '期限未設定のタスクもまとめて確認できます。', 'inbox'],
+  undated: ['期限なし', '期限なしのタスク', '期限を決めずに登録したタスク。', 'stack'],
   upcoming: ['カレンダー', 'カレンダー', '日付を選んで、その日の予定を確認。', 'calendar'],
   done: ['完了済み', '完了したタスク', 'これまでに終えたタスクの履歴。', 'checkcircle'],
   progress: ['振り返り', 'タスクの振り返り', '直近7日間の完了数を確認。', 'chart'],
@@ -111,7 +120,7 @@ function starterData() {
     makeTask('明日やることをメモする', {category:'study', due:shiftDays(today,1), minutes:10}),
   ];
   tasks.forEach(task => { task.sample = true; });
-  return {version:1, tasks, categories, theme:'light', accent:'violet', dailyAccent:false};
+  return {version:1, tasks, categories, theme:'light', accent:'violet', accentMode:'draw'};
 }
 
 function decode(raw) {
@@ -144,7 +153,8 @@ function decode(raw) {
     });
   });
   return {version:1, categories, tasks, theme:raw.theme === 'dark' ? 'dark' : 'light',
-    accent:Object.hasOwn(accents, raw.accent) ? raw.accent : 'violet', dailyAccent:raw.dailyAccent === true};
+    accent:Object.hasOwn(accents, raw.accent) ? raw.accent : 'violet',
+    accentMode:Object.hasOwn(accentModes,raw.accentMode) ? raw.accentMode : raw.dailyAccent === true ? 'daily' : 'draw'};
 }
 
 let data;
@@ -155,7 +165,7 @@ try {
   if (!saved) localStorage.setItem(storageKey, JSON.stringify(data));
 } catch {
   storageFailed = true;
-  data = {version:1, tasks:[], categories:[], theme:'light', accent:'violet', dailyAccent:false};
+  data = {version:1, tasks:[], categories:[], theme:'light', accent:'violet', accentMode:'draw'};
 }
 
 let selectedDay = dateKey();
@@ -164,7 +174,7 @@ let view;
 let undoData = null;
 let toastTimeout;
 let filtersOpen = false;
-const filters = {query:'', priority:'', state:'', sort:'due'};
+const filters = {query:'', priority:'', state:'', sort:'due', energy:''};
 let drawMode = 'random';
 let drawScope = 'view';
 let quickLimit = 15;
@@ -219,6 +229,7 @@ function changeView() {
     clearDraw();
   }
   view = next;
+  refreshQuickPresets();
   render();
 }
 
@@ -235,6 +246,7 @@ function viewTasks() {
   const category = currentCategory();
   if (category) return data.tasks.filter(task => task.category === category.id);
   if (view === 'today') return todayTasks();
+  if (view === 'undated') return data.tasks.filter(task => !task.due);
   if (view === 'upcoming') return data.tasks.filter(task => task.due === selectedDay);
   if (view === 'done') return data.tasks.filter(task => task.doneAt);
   return data.tasks;
@@ -250,6 +262,7 @@ function visibleTasks() {
   const query = filters.query.trim().toLocaleLowerCase();
   const tasks = viewTasks().filter(task => (!query || matches(task, query)) &&
     (!filters.priority || task.priority === filters.priority) &&
+    (!filters.energy || task.energy === filters.energy) &&
     (!filters.state || Boolean(task.doneAt) === (filters.state === 'done')));
   const ordering = new Map(shuffledOrder.map((id, index) => [id,index]));
   const compare = {
@@ -271,6 +284,7 @@ const actionButton = (label, action, id = '', className = 'secondary') =>
 function renderNav() {
   const today = dateKey();
   const counts = {today: todayTasks().filter(task => !task.doneAt).length, all: active().length,
+    undated:active().filter(task => !task.due).length,
     upcoming: active().filter(task => task.due && task.due > today).length, done: data.tasks.filter(task => task.doneAt).length};
   const navItem = (key, label, graphic, count, href = key) => '<a href="#' + escapeHTML(href) + '" class="nav-button' + (view === key ? ' active" aria-current="page' : '') + '">' +
     graphic + '<span>' + escapeHTML(label) + '</span>' + (count !== undefined ? '<span class="nav-count">' + count + '</span>' : '') + '</a>';
@@ -301,8 +315,9 @@ function taskMeta(task) {
   const checked = task.checklist.filter(item => item.checked).length;
   return '<div class="metadata">' +
     (category ? '<span class="chip" style="border:1px solid ' + palette[category.color][0] + '65"><i class="category-dot" style="background:' + palette[category.color][0] + '"></i>' + escapeHTML(category.name) + '</span>' : '') +
-    (due ? '<span class="' + (task.due < today && !task.doneAt ? 'late' : '') + '">' + icon('calendar') + escapeHTML(due) + '</span>' : '') +
+    (due ? '<span class="' + (task.due < today && !task.doneAt ? 'late' : '') + '">' + icon('calendar') + escapeHTML(due) + '</span>' : '<span>期限なし</span>') +
     (task.minutes ? '<span>' + icon('clock') + task.minutes + '分</span>' : '') +
+    '<span class="energy-tag">' + energyLabels[task.energy] + '</span>' +
     (task.repeat !== 'none' ? '<span>' + icon('repeat') + repeatLabels[task.repeat] + '</span>' : '') +
     (task.checklist.length ? '<span>' + icon('checkcircle') + checked + '/' + task.checklist.length + '</span>' : '') +
     task.tags.map(tag => '<span class="chip">#' + escapeHTML(tag) + '</span>').join('') + '</div>';
@@ -350,6 +365,7 @@ function renderProgress() {
 function renderTasks() {
   const report = view === 'progress';
   $('#quick-row').hidden = report || view === 'done';
+  $('#list-energy').hidden = report;
   $('#sort-button').hidden = report;
   $('#sort-button').setAttribute('aria-expanded', String(filtersOpen && !report));
   $('#filters').hidden = report || !filtersOpen;
@@ -365,9 +381,9 @@ function renderTasks() {
   if (category && filtersOpen) $('#filters').insertAdjacentHTML('beforeend', '<div class="category-edit">' + actionButton('カテゴリを編集','category',category.id) + '</div>');
   $('#task-list').innerHTML = (view === 'upcoming' ? renderCalendar() : '') + (tasks.length
     ? pending.map(taskRow).join('') + (complete.length && view !== 'done' ? '<p class="done-label">完了済み</p>' : '') + complete.map(taskRow).join('')
-    : '<div class="empty"><p>' + (filters.query || filters.state || filters.priority ? '条件に一致するタスクがありません。' :
+    : '<div class="empty"><p>' + (filters.query || filters.state || filters.priority || filters.energy ? '条件に一致するタスクがありません。' :
       view === 'done' ? '完了したタスクはここに表示されます。' : 'この一覧にタスクはありません。') + '</p>' +
-      (view === 'done' || filters.query || filters.state || filters.priority ? '' : actionButton('タスクを追加','new')) + '</div>');
+      (view === 'done' || filters.query || filters.state || filters.priority || filters.energy ? '' : actionButton('タスクを追加','new')) + '</div>');
 }
 
 function clearDraw() {
@@ -442,6 +458,7 @@ function draw() {
   die.classList.remove('rolled');
   void die.offsetWidth;
   die.classList.add('rolled');
+  if (eligible.length && data.accentMode === 'draw') rollAccent();
   renderResult();
 }
 function renderRandomOptions() {
@@ -492,11 +509,11 @@ function renderTimer() {
   }
 }
 function currentAccent() {
-  if (!data.dailyAccent) return data.accent;
+  if (data.accentMode === 'fixed' || data.accentMode === 'draw') return data.accent;
   const days = Math.floor(Date.parse(dateKey() + 'T00:00:00Z') / 86400000);
+  const period = data.accentMode === 'hourly' ? days * 24 + new Date().getHours() : days;
   const colors = Object.keys(accents);
-  // Every six days, shuffle the order of the six palettes with a stable seed.
-  const cycle = Math.floor(days / colors.length);
+  const cycle = Math.floor(period / colors.length);
   const orderFor = seed => {
     const order = [...colors];
     for (let i = order.length - 1; i > 0; i--) {
@@ -510,13 +527,24 @@ function currentAccent() {
   if (order[0] === orderFor(Math.imul(cycle - 1, 2654435761)).at(-1)) {
     [order[0], order[1]] = [order[1], order[0]];
   }
-  return order[((days % colors.length) + colors.length) % colors.length];
+  return order[((period % colors.length) + colors.length) % colors.length];
+}
+function renderAccent() {
+  const accent = currentAccent();
+  document.documentElement.dataset.accent = accent;
+  const label = $('#current-accent');
+  if (label) label.textContent = accents[accent];
+}
+function rollAccent() {
+  data.accent = shuffle(Object.keys(accents).filter(key => key !== currentAccent()))[0];
+  persist();
+  renderAccent();
 }
 function render() {
   const category = currentCategory();
   const [path, title, description] = views[view] || [category?.name ?? '今日', category?.name ?? '今日のタスク', 'カテゴリのタスクを確認。'];
   document.documentElement.classList.toggle('dark', data.theme === 'dark');
-  document.documentElement.dataset.accent = currentAccent();
+  renderAccent();
   $('meta[name="theme-color"]').content = data.theme === 'dark' ? '#212031' : '#ffffff';
   $('#storage-status').textContent = storageFailed ? '保存できません' : '自動保存オン';
   $('#path').textContent = path;
@@ -541,23 +569,53 @@ const categoryChoices = () => ({'':'未設定', ...Object.fromEntries(data.categ
 function defaults() {
   return {category:currentCategory()?.id ?? '', due:view === 'today' ? dateKey() : view === 'upcoming' ? selectedDay : ''};
 }
+const minutePresets = [['','未設定'],['5','5分'],['10','10分'],['15','15分'],['25','25分'],['30','30分'],['60','60分']];
+const duePresets = () => [['','期限なし'],[dateKey(),'今日'],[shiftDays(dateKey(),1),'明日']];
+const energyOptions = Object.entries(energyLabels);
+
+function choices(label, name, items, value, extra = '') {
+  return '<fieldset class="choices"><legend>' + label + '</legend><div class="choice-row">' + items.map(([key,text]) =>
+    '<label class="choice"><input type="radio" name="' + name + '" value="' + escapeHTML(key) + '"' +
+    (String(value) === String(key) ? ' checked' : '') + '><span>' + escapeHTML(text) + '</span></label>').join('') +
+    '</div>' + extra + '</fieldset>';
+}
+function refreshQuickPresets() {
+  const due = defaults().due;
+  const dates = duePresets();
+  if (due && !dates.some(([key]) => key === due)) dates.push([due,dayFormat.format(parseDay(due))]);
+  $('#quick-presets').innerHTML = choices('期限','due',dates,due) +
+    choices('所要時間','minutes',minutePresets,'') +
+    choices('集中力','energy',energyOptions,'medium');
+}
+function renderEnergyFilter() {
+  $('#list-energy').innerHTML = choices('集中力で絞り込む','listEnergy',[['','すべて'],...energyOptions],filters.energy);
+}
 function editTask(task) {
   const value = task ?? makeTask('', defaults());
   const input = (name, text, attrs = '') => '<input name="' + name + '" value="' + escapeHTML(text) + '" ' + attrs + '>';
-  const select = (name, items, chosen) => '<select name="' + name + '">' + options(items,chosen) + '</select>';
   const area = (name, text, attrs = '') => '<textarea name="' + name + '" rows="2" ' + attrs + '>' + escapeHTML(text) + '</textarea>';
-  openModal(task ? 'タスクを編集' : 'タスクを追加', '<form id="task-form" data-id="' + escapeHTML(task?.id ?? '') + '"><div class="form-grid">' +
+  const dates = duePresets();
+  const dueMode = dates.some(([key]) => key === value.due) ? value.due : 'custom';
+  const length = String(value.minutes || '');
+  const minuteMode = minutePresets.some(([key]) => key === length) ? length : 'custom';
+  const customField = (id, label, control, mode) => '<div class="custom-choice" id="' + id + '"' +
+    (mode === 'custom' ? '' : ' hidden') + '>' + field(label,control) + '</div>';
+  openModal(task ? 'タスクを編集' : 'タスクを追加', '<form id="task-form" data-id="' + escapeHTML(task?.id ?? '') + '"><div class="task-editor">' +
     field('タスク名',input('title',value.title,'maxlength="180" required'),true) +
-    field('カテゴリ',select('category',categoryChoices(),value.category)) +
-    field('期限',input('due',value.due,'type="date"')) +
-    field('優先度',select('priority',priorityLabels,value.priority)) +
-    field('繰り返し',select('repeat',repeatLabels,value.repeat)) +
-    field('所要時間（分）',input('minutes',value.minutes || '','type="number" min="1" max="999" placeholder="未設定"')) +
-    field('必要な集中力',select('energy',energyLabels,value.energy)) +
+    choices('期限','due',[...dates,['custom','日付を指定']],dueMode,
+      customField('custom-due','日付',input('customDue',value.due,'type="date"' + (dueMode === 'custom' ? ' required' : ' disabled')),dueMode)) +
+    choices('所要時間','minutes',[...minutePresets,['custom','分数を指定']],minuteMode,
+      customField('custom-minutes','所要時間（分）',input('customMinutes',length,'type="number" min="1" max="999"' + (minuteMode === 'custom' ? ' required' : ' disabled')),minuteMode)) +
+    choices('集中力','energy',energyOptions,value.energy) +
+    '<details class="task-more"' + (task ? ' open' : '') + '><summary>カテゴリ・優先度・繰り返し・メモ</summary><div class="task-editor">' +
+    choices('カテゴリ','category',Object.entries(categoryChoices()),value.category) +
+    choices('優先度','priority',Object.entries(priorityLabels),value.priority) +
+    choices('繰り返し','repeat',Object.entries(repeatLabels),value.repeat) +
     field('タグ（カンマ区切り）',input('tags',value.tags.join(', '),'maxlength="540"'),true) +
     field('メモ',area('notes',value.notes,'maxlength="4000"'),true) +
     field('チェックリスト（1行に1項目）',area('checklist',value.checklist.map(item => item.text).join('\n'),'maxlength="4000"'),true) +
-    '</div><div class="form-actions">' + actionButton('キャンセル','close') + '<button class="button primary" type="submit">保存</button></div></form>', '[name="title"]');
+    '</div></details></div><div class="form-actions">' + actionButton('キャンセル','close') +
+    '<button class="button primary" type="submit">' + (task ? '保存' : '追加') + '</button></div></form>', '[name="title"]');
 }
 function detail(task) {
   openModal(task.title, taskMeta(task) + (task.notes ? '<p class="details-notes">' + escapeHTML(task.notes) + '</p>' : '') +
@@ -583,10 +641,10 @@ function settings() {
   openModal('設定・バックアップ',
     '<section class="settings-group"><h3>テーマ</h3>' + actionButton('ライト','theme','light',data.theme === 'light' ? 'primary' : 'secondary') +
     actionButton('ダーク','theme','dark',data.theme === 'dark' ? 'primary' : 'secondary') + '</section>' +
-    '<section class="settings-group accent-settings"><h3>アクセントカラー</h3><p class="muted">現在の色は「' + accents[currentAccent()] + '」</p>' +
+    '<section class="settings-group accent-settings"><h3>アクセントカラー</h3><p class="muted">現在の色は「<span id="current-accent">' + accents[currentAccent()] + '</span>」</p>' +
+    choices('切り替え頻度','accentMode',Object.entries(accentModes),data.accentMode) +
     '<select id="accent-choice" aria-label="アクセントカラー">' + options(accents,currentAccent()) + '</select>' +
-    actionButton('色をランダムに変える','roll-color') +
-    '<label class="daily-accent"><input type="checkbox" id="daily-accent"' + (data.dailyAccent ? ' checked' : '') + '>日替わりで色を変える</label></section>' +
+    actionButton('色をランダムに変える','roll-color') + '</section>' +
     '<section class="settings-group"><h3>データ</h3><p class="muted">タスクはこのブラウザに自動保存されます。別の端末へ移すときはJSONを書き出して読み込んでください。</p>' +
     actionButton('JSONを書き出す','export') + actionButton('JSONを読み込む','import') + '<input id="import-file" type="file" accept=".json,application/json" hidden></section>' +
     '<section class="settings-group"><h3>Scriptableウィジェット</h3><p class="muted">iPhone・iPadのホーム画面に、今日のタスクや日替わりの1件を表示できます。</p>' +
@@ -748,11 +806,12 @@ const actions = {
     start.setMonth(start.getMonth() + Number(id));
     month = dateKey(start).slice(0,7);
     selectedDay = month === dateKey().slice(0,7) ? dateKey() : month + '-01';
+    refreshQuickPresets();
     clearDraw();
     renderTasks();
     renderResult();
   },
-  day: id => { selectedDay = id; month = id.slice(0,7); clearDraw(); renderTasks(); renderResult(); },
+  day: id => { selectedDay = id; month = id.slice(0,7); refreshQuickPresets(); clearDraw(); renderTasks(); renderResult(); },
   mode: id => {
     drawMode = id;
     clearDraw();
@@ -816,12 +875,12 @@ const actions = {
   'widget-data': () => copyForWidget(widgetSnapshot(),'タスク'),
   theme: id => { data.theme = id; persist(); render(); settings(); },
   'roll-color': () => {
-    data.accent = shuffle(Object.keys(accents).filter(key => key !== currentAccent()))[0];
-    data.dailyAccent = false;
-    persist();
-    render();
-    settings();
-    $('[data-action="roll-color"]',modalContent).focus();
+    const previous = currentAccent();
+    data.accentMode = 'fixed';
+    data.accent = previous;
+    rollAccent();
+    $('[name="accentMode"][value="fixed"]',modalContent).checked = true;
+    $('#accent-choice').value = data.accent;
   },
   export: downloadBackup,
   import: () => $('#import-file').click(),
@@ -858,6 +917,13 @@ function formValue(form, name) {
 function lines(value) {
   return value.split(/\r?\n/).map(line => line.trim().slice(0,180)).filter(Boolean);
 }
+function addedMessage(due) {
+  if (!due && ['today','upcoming'].includes(view)) return '追加しました。「期限なし」の一覧に表示されます。';
+  if ((view === 'today' && due > dateKey()) || (view === 'upcoming' && due !== selectedDay) || (view === 'undated' && due)) {
+    return '追加しました。「すべて」の一覧で確認できます。';
+  }
+  return 'タスクを追加しました。';
+}
 document.addEventListener('submit', event => {
   const element = event.target;
   if (!['quick-form','batch-form','task-form','category-form'].includes(element.id)) return;
@@ -865,8 +931,10 @@ document.addEventListener('submit', event => {
   const form = new FormData(element);
   const title = formValue(form,'title');
   if (element.id === 'quick-form' && title) {
-    change(() => data.tasks.push(makeTask(title,defaults())), 'タスクを追加しました。');
-    element.reset();
+    const due = formValue(form,'due');
+    const fields = {...defaults(),due,minutes:Number(formValue(form,'minutes')),energy:formValue(form,'energy')};
+    change(() => data.tasks.push(makeTask(title,fields)), addedMessage(due));
+    element.elements.title.value = '';
   }
   if (element.id === 'batch-form') {
     const titles = lines(formValue(form,'items'));
@@ -877,14 +945,17 @@ document.addEventListener('submit', event => {
   }
   if (element.id === 'task-form' && title) {
     const existing = taskFor(element.dataset.id);
-    const due = formValue(form,'due');
+    const dueChoice = formValue(form,'due');
+    const minuteChoice = formValue(form,'minutes');
+    const due = dueChoice === 'custom' ? formValue(form,'customDue') : dueChoice;
+    const minutes = Number(minuteChoice === 'custom' ? formValue(form,'customMinutes') : minuteChoice);
     const tags = [...new Set(formValue(form,'tags').split(/[,、，]/).map(item => item.trim().slice(0,35)).filter(Boolean))].slice(0,15);
     const previousChecklist = [...(existing?.checklist ?? [])];
     const checklist = lines(formValue(form,'checklist')).map(text => {
       const index = previousChecklist.findIndex(item => item.text === text);
       return index < 0 ? {text,checked:false} : previousChecklist.splice(index,1)[0];
     });
-    const fields = {title,due,category:formValue(form,'category'),minutes:Number(formValue(form,'minutes')),
+    const fields = {title,due,category:formValue(form,'category'),minutes,
       priority:formValue(form,'priority'), energy:formValue(form,'energy'), repeat:formValue(form,'repeat'),
       tags, checklist, notes:formValue(form,'notes'), anchor:existing?.due === due ? existing.anchor : 0};
     modal.close();
@@ -894,7 +965,7 @@ document.addEventListener('submit', event => {
         Object.assign(existing,fields);
       }
       else data.tasks.push(makeTask(title,fields));
-    }, 'タスクを保存しました。');
+    }, existing ? 'タスクを保存しました。' : addedMessage(due));
   }
   if (element.id === 'category-form') {
     const name = formValue(form,'name');
@@ -915,7 +986,21 @@ document.addEventListener('input', event => {
   if (id === 'filter-query') { filters.query = value; clearDraw(); renderTasks(); renderResult(); }
 });
 document.addEventListener('change', async event => {
-  const {id,value,dataset} = event.target;
+  const {id,value,dataset,name} = event.target;
+  if (name === 'listEnergy') {
+    filters.energy = value;
+    clearDraw();
+    renderTasks();
+    renderResult();
+  }
+  if (event.target.form?.id === 'task-form' && ['due','minutes'].includes(name)) {
+    const custom = $('#custom-' + name);
+    const enabled = value === 'custom';
+    custom.hidden = !enabled;
+    const control = $('input',custom);
+    control.required = enabled;
+    control.disabled = !enabled;
+  }
   if (id.startsWith('filter-') && id !== 'filter-query') {
     filters[id.slice(7)] = value;
     if (value === 'shuffle') shuffledOrder = shuffle(viewTasks().map(task => task.id));
@@ -931,13 +1016,13 @@ document.addEventListener('change', async event => {
     clearDraw();
     renderResult();
   }
-  if (id === 'accent-choice' || id === 'daily-accent') {
+  if (id === 'accent-choice' || name === 'accentMode') {
     data.accent = id === 'accent-choice' ? value : currentAccent();
-    data.dailyAccent = id === 'daily-accent' && event.target.checked;
+    data.accentMode = id === 'accent-choice' ? 'fixed' : value;
     persist();
-    render();
-    settings();
-    $('#' + id,modalContent).focus();
+    renderAccent();
+    $('[name="accentMode"][value="' + data.accentMode + '"]',modalContent).checked = true;
+    $('#accent-choice').value = currentAccent();
   }
   if (id === 'timer-minutes') {
     focus.minutes = Number(value);
@@ -981,10 +1066,15 @@ let displayedDay = dateKey();
 setInterval(() => {
   if (displayedDay !== dateKey()) {
     displayedDay = dateKey();
+    refreshQuickPresets();
     render();
-  } else renderTimer();
+  } else {
+    renderTimer();
+    if (data.accentMode === 'hourly') renderAccent();
+  }
 }, 250);
 renderRandomOptions();
+renderEnergyFilter();
 changeView();
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
   navigator.serviceWorker.register('./sw.js').catch(() => {});

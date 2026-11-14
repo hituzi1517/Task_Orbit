@@ -44,10 +44,17 @@
               <div><h2 id="list-title">タスクリスト</h2><p id="list-summary"></p></div>
               <button class="icon-button outline" id="sort-button" data-action="filters" title="絞り込み・並び替え" aria-label="絞り込み・並び替え" aria-expanded="false"><span data-icon="sliders"></span></button>
             </div>
-            <div class="quick-row" id="quick-row">
-              <form id="quick-form" class="quick-form"><span data-icon="plus"></span><input name="title" aria-label="タスク名" placeholder="タスクをすばやく追加…" maxlength="180" required><button type="submit" title="タスクを追加" aria-label="タスクを追加">↵</button></form>
-              <button class="icon-button outline" data-action="batch" title="まとめて追加" aria-label="まとめて追加"><span data-icon="stack"></span></button>
+            <div id="quick-row">
+              <form id="quick-form">
+                <div class="quick-entry">
+                  <label class="quick-form"><span data-icon="plus"></span><input name="title" aria-label="タスク名" placeholder="タスクをすばやく追加…" maxlength="180" required></label>
+                  <button class="button primary" type="submit">追加</button>
+                  <button type="button" class="icon-button outline" data-action="batch" title="まとめて追加" aria-label="まとめて追加"><span data-icon="stack"></span></button>
+                </div>
+                <div class="quick-presets" id="quick-presets"></div>
+              </form>
             </div>
+            <div id="list-energy"></div>
             <div id="filters" hidden></div>
             <div id="task-list"></div>
           </section>
