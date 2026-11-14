@@ -1,7 +1,7 @@
 'use strict';
 
 const cachePrefix = 'task-orbit:' + new URL(self.registration.scope).pathname + ':';
-const cacheName = cachePrefix + 'v1';
+const cacheName = cachePrefix + 'v2';
 const files = ['./index.html','./app.js','./styles.css','./manifest.webmanifest','./icon.png','./icon-192.png','./icon-512.png'];
 
 self.addEventListener('install', event => {

@@ -30,6 +30,7 @@ const icons = {
   pause: '<path d="M9 5v14m6-14v14"/>',
   x: '<path d="m6 6 12 12M18 6 6 18"/>',
   chevron: '<path d="m9 5 7 7-7 7"/>',
+  pin: '<path d="m15 3 6 6-3 1-3 5v3l-9-9h3l5-3zM9 15l-6 6"/>',
 };
 const icon = name => '<svg viewBox="0 0 24 24" aria-hidden="true">' + (icons[name] || '') + '</svg>';
 document.querySelectorAll('[data-icon]').forEach(element => { element.innerHTML = icon(element.dataset.icon); });
@@ -41,6 +42,7 @@ const palette = {
   violet: ['#8058d4', '紫'], mint: ['#359b82', '緑'], gold: ['#bf8540', '橙'],
   blue: ['#477fc1', '青'], pink: ['#c35f88', '桃'], gray: ['#77758a', '灰'],
 };
+const accents = {violet:'すみれ', blue:'深い青', mint:'青緑', pink:'木いちご', gold:'琥珀', plum:'ぶどう'};
 const views = {
   today: ['今日', '今日のタスク', '期限が今日までのタスクと、今日完了したタスク。', 'sun'],
   all: ['すべて', 'すべてのタスク', '期限未設定のタスクもまとめて確認できます。', 'inbox'],
@@ -51,6 +53,11 @@ const views = {
 const modes = {
   random: 'おまかせ', urgent: '優先くじ', quick: 'すきま時間',
   energy: '気分で選ぶ', triple: '3つ選ぶ', order: '順番シャッフル',
+  budget: '時間ぴったり', mystery: 'お楽しみくじ',
+};
+const drawHints = {
+  budget:'選んだ時間内で、合計時間が近い組み合わせを引きます。',
+  mystery:'当たりのタスク名は「開ける」を押すまで内緒。',
 };
 
 function escapeHTML(value) {
@@ -90,7 +97,7 @@ function nextDue(task) {
 
 function makeTask(title, fields = {}) {
   return {id: uid(), title, due: '', priority: 'none', minutes: 0, energy: 'medium', category: '', tags: [],
-    notes: '', checklist: [], repeat: 'none', anchor: 0, doneAt: '', created: Date.now(), nextId: '', sample: false, ...fields};
+    notes: '', checklist: [], repeat: 'none', anchor: 0, doneAt: '', created: Date.now(), nextId: '', sample: false, pinned: false, ...fields};
 }
 
 function starterData() {
@@ -104,7 +111,7 @@ function starterData() {
     makeTask('明日やることをメモする', {category:'study', due:shiftDays(today,1), minutes:10}),
   ];
   tasks.forEach(task => { task.sample = true; });
-  return {version:1, tasks, categories, theme:'light'};
+  return {version:1, tasks, categories, theme:'light', accent:'violet', dailyAccent:false};
 }
 
 function decode(raw) {
@@ -133,10 +140,11 @@ function decode(raw) {
       tags: Array.isArray(task.tags) ? task.tags.filter(tag => typeof tag === 'string').map(tag => tag.slice(0,35)).slice(0,15) : [],
       notes: typeof task.notes === 'string' ? task.notes.slice(0,4000) : '',
       checklist, nextId: typeof task.nextId === 'string' ? task.nextId : '',
-      sample: task.sample === true, created: Number.isFinite(task.created) ? task.created : Date.now(),
+      sample: task.sample === true, pinned: task.pinned === true, created: Number.isFinite(task.created) ? task.created : Date.now(),
     });
   });
-  return {version:1, categories, tasks, theme:raw.theme === 'dark' ? 'dark' : 'light'};
+  return {version:1, categories, tasks, theme:raw.theme === 'dark' ? 'dark' : 'light',
+    accent:Object.hasOwn(accents, raw.accent) ? raw.accent : 'violet', dailyAccent:raw.dailyAccent === true};
 }
 
 let data;
@@ -147,7 +155,7 @@ try {
   if (!saved) localStorage.setItem(storageKey, JSON.stringify(data));
 } catch {
   storageFailed = true;
-  data = {version:1, tasks:[], categories:[], theme:'light'};
+  data = {version:1, tasks:[], categories:[], theme:'light', accent:'violet', dailyAccent:false};
 }
 
 let selectedDay = dateKey();
@@ -160,8 +168,10 @@ const filters = {query:'', priority:'', state:'', sort:'due'};
 let drawMode = 'random';
 let drawScope = 'view';
 let quickLimit = 15;
+let timeBudget = 30;
 let energyTarget = 'low';
 let drawn = [];
+let revealed = false;
 const drawHistory = new Set();
 let drawMessage = '';
 let shuffledOrder = [];
@@ -249,7 +259,10 @@ function visibleTasks() {
     newest: (a,b) => b.created - a.created,
     shuffle: (a,b) => (ordering.get(a.id) ?? Infinity) - (ordering.get(b.id) ?? Infinity) || compareDue(a,b),
   };
-  return tasks.sort(compare[filters.sort] || compareDue);
+  const compareTasks = compare[filters.sort] || compareDue;
+  return tasks.sort((a,b) => (
+    filters.sort === 'shuffle' ? 0 : Number(b.pinned && !b.doneAt) - Number(a.pinned && !a.doneAt)
+  ) || compareTasks(a,b));
 }
 const options = (items, value) => Object.entries(items).map(([key, label]) => '<option value="' + escapeHTML(key) + '"' + (String(value) === key ? ' selected' : '') + '>' + escapeHTML(label) + '</option>').join('');
 const actionButton = (label, action, id = '', className = 'secondary') =>
@@ -301,7 +314,8 @@ function taskRow(task) {
   return '<article class="task-row' + (task.doneAt ? ' done' : '') + '"><button class="check" role="checkbox" aria-checked="' + Boolean(task.doneAt) +
     '" aria-label="' + escapeHTML(task.title) + '" data-action="toggle" data-id="' + id + '">' + (task.doneAt ? icon('check') : '') + '</button>' +
     '<div class="task-details"><button class="task-name" data-action="detail" data-id="' + id + '">' + escapeHTML(task.title) + '</button>' + taskMeta(task) +
-    '</div>' + priority + '<button class="icon-button" data-action="menu" data-id="' + id + '" title="タスクの操作" aria-label="' + escapeHTML(task.title) + ' の操作">' + icon('more') + '</button></article>';
+    '</div>' + (task.pinned && !task.doneAt ? '<span class="pin-mark" title="ピン留め" role="img" aria-label="ピン留め">' + icon('pin') + '</span>' : '') +
+    priority + '<button class="icon-button" data-action="menu" data-id="' + id + '" title="タスクの操作" aria-label="' + escapeHTML(task.title) + ' の操作">' + icon('more') + '</button></article>';
 }
 
 function renderCalendar() {
@@ -360,6 +374,7 @@ function clearDraw() {
   drawn = [];
   drawHistory.clear();
   drawMessage = '';
+  revealed = false;
 }
 function shuffle(items) {
   const copy = [...items];
@@ -376,14 +391,31 @@ function pick(pool) {
   let ticket = Math.random() * weights.reduce((sum, weight) => sum + weight, 0);
   return pool.find((_,index) => (ticket -= weights[index]) < 0) ?? pool.at(-1);
 }
+function fitBudget(tasks, budget) {
+  // Each reachable total holds a set of distinct tasks. Descending totals prevent reuse.
+  const combinations = Array(budget + 1).fill(null);
+  combinations[0] = [];
+  for (const task of shuffle(tasks)) {
+    for (let total = budget; total >= task.minutes; total--) {
+      const previous = combinations[total - task.minutes];
+      if (!combinations[total] && previous) combinations[total] = [...previous, task];
+    }
+  }
+  return combinations.findLast(Boolean);
+}
 function draw() {
   const source = drawScope === 'all' || ['done','progress'].includes(view) ? active() : visibleTasks().filter(task => !task.doneAt);
+  const maxMinutes = drawMode === 'budget' ? timeBudget : drawMode === 'quick' ? quickLimit : 0;
   const eligible = source.filter(task =>
-    (drawMode !== 'quick' || (task.minutes > 0 && task.minutes <= quickLimit)) &&
+    (!maxMinutes || (task.minutes > 0 && task.minutes <= maxMinutes)) &&
     (drawMode !== 'energy' || task.energy === energyTarget));
   drawn = [];
   drawMessage = '';
-  if (!eligible.length) drawMessage = '条件に合う未完了タスクがありません。';
+  revealed = false;
+  if (!eligible.length) drawMessage = maxMinutes ? '所要時間が ' + maxMinutes + ' 分以内の未完了タスクがありません。' : '条件に合う未完了タスクがありません。';
+  else if (drawMode === 'budget') {
+    drawn = fitBudget(eligible,timeBudget).map(task => task.id);
+  }
   else if (drawMode === 'order') {
     const order = shuffle(eligible);
     drawn = order.map(task => task.id);
@@ -413,19 +445,28 @@ function draw() {
   renderResult();
 }
 function renderRandomOptions() {
+  $('#random-hint').textContent = drawHints[drawMode] || '次にやることを、くじで決めよう。';
   $('#random-options').innerHTML = Object.entries(modes).map(([key,label]) => '<button class="random-option' + (key === drawMode ? ' active' : '') +
     '" data-action="mode" data-id="' + key + '" aria-pressed="' + (key === drawMode) + '">' + label + '</button>').join('') +
     '<div class="random-config"><select id="draw-scope" aria-label="くじの対象">' + options({view:'表示中の一覧',all:'すべての未完了'}, drawScope) + '</select>' +
     (drawMode === 'quick' ? '<select id="quick-limit" aria-label="使える時間">' + options({5:'5分以内',10:'10分以内',15:'15分以内',30:'30分以内',60:'60分以内'},quickLimit) + '</select>' : '') +
+    (drawMode === 'budget' ? '<select id="time-budget" aria-label="合計で使える時間">' + options({10:'10分',15:'15分',20:'20分',30:'30分',45:'45分',60:'60分',90:'90分',120:'120分'},timeBudget) + '</select>' : '') +
     (drawMode === 'energy' ? '<select id="energy-target" aria-label="今の気分">' + options(energyLabels,energyTarget) + '</select>' : '') + '</div>';
 }
 function renderResult() {
   const results = drawn.map(taskFor).filter(task => task && !task.doneAt);
+  const drawLabel = $('#draw-label');
+  drawLabel.textContent = results.length ? (drawMode === 'order' ? 'もう一度シャッフル' : 'もう一度引く') : (drawMode === 'order' ? '順番をシャッフル' : 'くじを引く');
+  if (drawMode === 'mystery' && results.length && !revealed) {
+    $('#random-result').innerHTML = '<div class="draw-result-row"><strong>タスクが当たりました</strong><br><button data-action="reveal">開ける</button></div>';
+    return;
+  }
+  const total = drawMode === 'budget' && results.length ? results.reduce((sum,task) => sum + task.minutes,0) : 0;
   $('#random-result').innerHTML = (drawMessage ? '<p>' + escapeHTML(drawMessage) + '</p>' : '') +
+    (total ? '<p class="budget-total"><strong>合計 ' + total + ' 分</strong> ／ ' + timeBudget + ' 分</p>' : '') +
     results.map((task,index) => '<div class="draw-result-row"><div>' + (results.length > 1 ? (index + 1) + '. ' : '') + '<strong>' + escapeHTML(task.title) +
-      '</strong></div><button data-action="detail" data-id="' + escapeHTML(task.id) + '">詳細</button><button data-action="focus-task" data-id="' +
+      '</strong>' + (total ? ' <span>' + task.minutes + ' 分</span>' : '') + '</div><button data-action="detail" data-id="' + escapeHTML(task.id) + '">詳細</button><button data-action="focus-task" data-id="' +
       escapeHTML(task.id) + '">タイマーにセット</button></div>').join('');
-  $('#draw-label').textContent = results.length ? (drawMode === 'order' ? 'もう一度シャッフル' : 'もう一度引く') : (drawMode === 'order' ? '順番をシャッフル' : 'くじを引く');
 }
 
 function formatTimer(ms) {
@@ -450,10 +491,33 @@ function renderTimer() {
     renderTimer();
   }
 }
+function currentAccent() {
+  if (!data.dailyAccent) return data.accent;
+  const days = Math.floor(Date.parse(dateKey() + 'T00:00:00Z') / 86400000);
+  const colors = Object.keys(accents);
+  // Every six days, shuffle the order of the six palettes with a stable seed.
+  const cycle = Math.floor(days / colors.length);
+  const orderFor = seed => {
+    const order = [...colors];
+    for (let i = order.length - 1; i > 0; i--) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      const j = Math.floor(seed / 4294967296 * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    return order;
+  };
+  const order = orderFor(Math.imul(cycle, 2654435761));
+  if (order[0] === orderFor(Math.imul(cycle - 1, 2654435761)).at(-1)) {
+    [order[0], order[1]] = [order[1], order[0]];
+  }
+  return order[((days % colors.length) + colors.length) % colors.length];
+}
 function render() {
   const category = currentCategory();
   const [path, title, description] = views[view] || [category?.name ?? '今日', category?.name ?? '今日のタスク', 'カテゴリのタスクを確認。'];
   document.documentElement.classList.toggle('dark', data.theme === 'dark');
+  document.documentElement.dataset.accent = currentAccent();
+  $('meta[name="theme-color"]').content = data.theme === 'dark' ? '#212031' : '#ffffff';
   $('#storage-status').textContent = storageFailed ? '保存できません' : '自動保存オン';
   $('#path').textContent = path;
   $('#today-date').textContent = fullDateFormat.format(new Date());
@@ -504,6 +568,7 @@ function detail(task) {
 }
 function taskMenu(task) {
   openModal(task.title, '<div class="form-actions menu-actions">' + actionButton('編集','edit',task.id) +
+    (task.doneAt ? '' : actionButton(task.pinned ? 'ピン留めを外す' : 'ピン留め','pin',task.id)) +
     actionButton('複製','duplicate',task.id) + actionButton('期限を明日に','tomorrow',task.id) +
     actionButton('タイマーにセット','focus-task',task.id) + actionButton('削除','delete',task.id,'secondary danger') + '</div>');
 }
@@ -518,6 +583,10 @@ function settings() {
   openModal('設定・バックアップ',
     '<section class="settings-group"><h3>テーマ</h3>' + actionButton('ライト','theme','light',data.theme === 'light' ? 'primary' : 'secondary') +
     actionButton('ダーク','theme','dark',data.theme === 'dark' ? 'primary' : 'secondary') + '</section>' +
+    '<section class="settings-group accent-settings"><h3>アクセントカラー</h3><p class="muted">現在の色は「' + accents[currentAccent()] + '」</p>' +
+    '<select id="accent-choice" aria-label="アクセントカラー">' + options(accents,currentAccent()) + '</select>' +
+    actionButton('色をランダムに変える','roll-color') +
+    '<label class="daily-accent"><input type="checkbox" id="daily-accent"' + (data.dailyAccent ? ' checked' : '') + '>日替わりで色を変える</label></section>' +
     '<section class="settings-group"><h3>データ</h3><p class="muted">タスクはこのブラウザに自動保存されます。別の端末へ移すときはJSONを書き出して読み込んでください。</p>' +
     actionButton('JSONを書き出す','export') + actionButton('JSONを読み込む','import') + '<input id="import-file" type="file" accept=".json,application/json" hidden></section>' +
     (data.tasks.some(task => task.sample) ? '<section class="settings-group"><h3>サンプル</h3>' + actionButton('サンプルを消す','remove-samples') + '</section>' : ''));
@@ -577,6 +646,11 @@ const actions = {
   detail: (_,task) => { if (task) detail(task); },
   menu: (_,task) => { if (task) taskMenu(task); },
   toggle: (_,task) => { if (task) toggleTask(task); },
+  pin: (_,task) => {
+    if (!task || task.doneAt) return;
+    modal.close();
+    change(() => { task.pinned = !task.pinned; }, task.pinned ? 'ピン留めを外しました。' : 'ピン留めしました。');
+  },
   close: () => modal.close(),
   batch: () => openModal('タスクをまとめて追加','<form id="batch-form">' + field('1行に1件','<textarea name="items" rows="8" maxlength="20000" required placeholder="英単語の復習\n書類を提出"></textarea>') +
     '<div class="form-actions">' + actionButton('キャンセル','close') + '<button class="button primary">まとめて追加</button></div></form>', 'textarea'),
@@ -598,7 +672,7 @@ const actions = {
   duplicate: (_,task) => {
     if (!task) return;
     modal.close();
-    change(() => data.tasks.push(makeTask(task.title,{...task,id:uid(),created:Date.now(),doneAt:'',nextId:'',sample:false,
+    change(() => data.tasks.push(makeTask(task.title,{...task,id:uid(),created:Date.now(),doneAt:'',nextId:'',sample:false,pinned:false,
       checklist:task.checklist.map(item => ({...item,checked:false}))})), 'タスクを複製しました。');
   },
   tomorrow: (_,task) => {
@@ -629,6 +703,11 @@ const actions = {
     $('[data-action="mode"][data-id="' + id + '"]').focus();
   },
   draw,
+  reveal: () => {
+    revealed = true;
+    renderResult();
+    $('#random-result [data-action="detail"]')?.focus();
+  },
   'focus-task': (_,task) => {
     if (!task) return;
     const periods = [5,15,25,45,60];
@@ -654,6 +733,14 @@ const actions = {
   'reset-timer': () => { focus.end = 0; focus.remaining = focus.minutes*60000; renderTimer(); },
   settings,
   theme: id => { data.theme = id; persist(); render(); settings(); },
+  'roll-color': () => {
+    data.accent = shuffle(Object.keys(accents).filter(key => key !== currentAccent()))[0];
+    data.dailyAccent = false;
+    persist();
+    render();
+    settings();
+    $('[data-action="roll-color"]',modalContent).focus();
+  },
   export: downloadBackup,
   import: () => $('#import-file').click(),
   'confirm-import': () => {
@@ -720,7 +807,10 @@ document.addEventListener('submit', event => {
       tags, checklist, notes:formValue(form,'notes'), anchor:existing?.due === due ? existing.anchor : 0};
     modal.close();
     change(() => {
-      if (existing) Object.assign(existing,fields);
+      if (existing) {
+        if (drawMode === 'budget' && drawn.includes(existing.id) && existing.minutes !== fields.minutes) clearDraw();
+        Object.assign(existing,fields);
+      }
       else data.tasks.push(makeTask(title,fields));
     }, 'タスクを保存しました。');
   }
@@ -751,12 +841,21 @@ document.addEventListener('change', async event => {
     renderTasks();
     renderResult();
   }
-  if (id === 'draw-scope' || id === 'quick-limit' || id === 'energy-target') {
+  if (['draw-scope','quick-limit','energy-target','time-budget'].includes(id)) {
     if (id === 'draw-scope') drawScope = value;
     if (id === 'quick-limit') quickLimit = Number(value);
     if (id === 'energy-target') energyTarget = value;
+    if (id === 'time-budget') timeBudget = Number(value);
     clearDraw();
     renderResult();
+  }
+  if (id === 'accent-choice' || id === 'daily-accent') {
+    data.accent = id === 'accent-choice' ? value : currentAccent();
+    data.dailyAccent = id === 'daily-accent' && event.target.checked;
+    persist();
+    render();
+    settings();
+    $('#' + id,modalContent).focus();
   }
   if (id === 'timer-minutes') {
     focus.minutes = Number(value);

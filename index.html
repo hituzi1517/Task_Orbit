@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f7f7fb">
   <meta name="description" content="今日のタスクを整理して、次にやることをくじで選べるタスク管理アプリ。">
   <title>Task Orbit — タスク管理</title>
@@ -18,7 +18,7 @@
       <a class="brand" href="#today"><span class="brand-mark" data-icon="orbit"></span>Task Orbit</a>
       <nav id="navigation"></nav>
       <div class="sidebar-footer">
-        <button class="nav-button" data-action="settings"><span data-icon="settings"></span>設定・バックアップ</button>
+        <button class="nav-button" data-action="settings" aria-label="設定・バックアップ"><span data-icon="settings"></span>設定・バックアップ</button>
         <span class="storage-label"><i></i> <span id="storage-status">自動保存オン</span></span>
       </div>
     </aside>
@@ -56,7 +56,7 @@
               <div class="dice-art" aria-hidden="true"><i class="star one">✦</i><i class="star two">✧</i><i class="star three">✦</i><div class="die"><b></b><b></b><b></b><b></b><b></b></div></div>
               <span class="random-icon" data-icon="shuffle"></span>
               <h2>タスクくじ</h2>
-              <p>次にやることを、くじで決めよう。</p>
+              <p id="random-hint">次にやることを、くじで決めよう。</p>
               <div id="random-options" class="random-options"></div>
               <div id="random-result" class="random-result" aria-live="polite"></div>
               <button class="button draw-button" data-action="draw"><span data-icon="shuffle"></span><span id="draw-label">くじを引く</span><span class="draw-arrow">→</span></button>
