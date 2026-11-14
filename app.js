@@ -466,7 +466,7 @@ function renderRandomOptions() {
   $('#random-options').innerHTML = Object.entries(modes).map(([key,label]) => '<button class="random-option' + (key === drawMode ? ' active' : '') +
     '" data-action="mode" data-id="' + key + '" aria-pressed="' + (key === drawMode) + '">' + label + '</button>').join('') +
     '<div class="random-config"><select id="draw-scope" aria-label="くじの対象">' + options({view:'表示中の一覧',all:'すべての未完了'}, drawScope) + '</select>' +
-    (drawMode === 'quick' ? '<select id="quick-limit" aria-label="使える時間">' + options({5:'5分以内',10:'10分以内',15:'15分以内',30:'30分以内',60:'60分以内'},quickLimit) + '</select>' : '') +
+    (drawMode === 'quick' ? '<select id="quick-limit" aria-label="使える時間">' + options({5:'5分以内',10:'10分以内',15:'15分以内',30:'30分以内',45:'45分以内',60:'60分以内'},quickLimit) + '</select>' : '') +
     (drawMode === 'budget' ? '<select id="time-budget" aria-label="合計で使える時間">' + options({10:'10分',15:'15分',20:'20分',30:'30分',45:'45分',60:'60分',90:'90分',120:'120分'},timeBudget) + '</select>' : '') +
     (drawMode === 'energy' ? '<select id="energy-target" aria-label="今の気分">' + options(energyLabels,energyTarget) + '</select>' : '') + '</div>';
 }
@@ -569,7 +569,8 @@ const categoryChoices = () => ({'':'未設定', ...Object.fromEntries(data.categ
 function defaults() {
   return {category:currentCategory()?.id ?? '', due:view === 'today' ? dateKey() : view === 'upcoming' ? selectedDay : ''};
 }
-const minutePresets = [['','未設定'],['5','5分'],['10','10分'],['15','15分'],['25','25分'],['30','30分'],['60','60分']];
+const minutePresets = [['','未設定'],['5','5分'],['10','10分'],['15','15分'],['25','25分'],['30','30分'],['45','45分'],['60','60分']];
+const priorityOptions = ['none','low','medium','high'].map(key => [key,priorityLabels[key]]);
 const duePresets = () => [['','期限なし'],[dateKey(),'今日'],[shiftDays(dateKey(),1),'明日']];
 const energyOptions = Object.entries(energyLabels);
 
@@ -585,7 +586,8 @@ function refreshQuickPresets() {
   if (due && !dates.some(([key]) => key === due)) dates.push([due,dayFormat.format(parseDay(due))]);
   $('#quick-presets').innerHTML = choices('期限','due',dates,due) +
     choices('所要時間','minutes',minutePresets,'') +
-    choices('集中力','energy',energyOptions,'medium');
+    choices('集中力','energy',energyOptions,'medium') +
+    choices('優先度','priority',priorityOptions,'none');
 }
 function renderEnergyFilter() {
   $('#list-energy').innerHTML = choices('集中力で絞り込む','listEnergy',[['','すべて'],...energyOptions],filters.energy);
@@ -607,9 +609,9 @@ function editTask(task) {
     choices('所要時間','minutes',[...minutePresets,['custom','分数を指定']],minuteMode,
       customField('custom-minutes','所要時間（分）',input('customMinutes',length,'type="number" min="1" max="999"' + (minuteMode === 'custom' ? ' required' : ' disabled')),minuteMode)) +
     choices('集中力','energy',energyOptions,value.energy) +
-    '<details class="task-more"' + (task ? ' open' : '') + '><summary>カテゴリ・優先度・繰り返し・メモ</summary><div class="task-editor">' +
+    choices('優先度','priority',priorityOptions,value.priority) +
+    '<details class="task-more"' + (task ? ' open' : '') + '><summary>カテゴリ・繰り返し・メモ</summary><div class="task-editor">' +
     choices('カテゴリ','category',Object.entries(categoryChoices()),value.category) +
-    choices('優先度','priority',Object.entries(priorityLabels),value.priority) +
     choices('繰り返し','repeat',Object.entries(repeatLabels),value.repeat) +
     field('タグ（カンマ区切り）',input('tags',value.tags.join(', '),'maxlength="540"'),true) +
     field('メモ',area('notes',value.notes,'maxlength="4000"'),true) +
@@ -932,7 +934,8 @@ document.addEventListener('submit', event => {
   const title = formValue(form,'title');
   if (element.id === 'quick-form' && title) {
     const due = formValue(form,'due');
-    const fields = {...defaults(),due,minutes:Number(formValue(form,'minutes')),energy:formValue(form,'energy')};
+    const fields = {...defaults(),due,minutes:Number(formValue(form,'minutes')),
+      energy:formValue(form,'energy'),priority:formValue(form,'priority')};
     change(() => data.tasks.push(makeTask(title,fields)), addedMessage(due));
     element.elements.title.value = '';
   }
